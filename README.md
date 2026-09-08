@@ -30,3 +30,36 @@ A note on scope
 This is a screening and data-organization tool, not financial advice and not an automated trader. It highlights statistical divergences for a human to review. Markets are noisy and correlations break; a flagged pair is a starting point for analysis, never a recommendation to trade.
 
 ⚠️ The brapi API token was replaced with a placeholder (COLE_SEU_TOKEN_AQUI). Add your own token to run it.
+
+------------------------------------------------------------------------------------------------------------------------------------------
+
+# Ferramenta Automatizada de Triagem de Pairs Trading (B3 - Bolsa de Valores Brasileira)
+
+n8n · API brapi · JavaScript · Arbitragem Estatística
+
+Uma ferramenta de automação de dados que realiza a triagem de pares de ações brasileiras correlacionadas e identifica divergências estatísticas que podem sinalizar uma oportunidade de reversão à média. Desenvolvida para apoiar a análise de *swing trade*, e não para executar operações ou prever o mercado.
+
+O que ela faz
+
+Automatiza todo o fluxo de triagem: coleta preços históricos de pares de ações do mesmo setor, mede o grau de desvio de cada par em relação à sua relação habitual e gera um relatório organizado e de fácil leitura.
+
+Para cada par, calcula a razão de preços em uma janela móvel, a média e o desvio padrão dessa razão, além do *z-score* atual (quantos desvios padrão o par está em relação à normalidade). Quando um par ultrapassa um determinado limite (2 desvios padrão), ele é sinalizado: identifica-se qual ação está "cara", qual está "barata" e a direção de uma possível operação de reversão à média. A ferramenta também classifica a qualidade do sinal — uma divergência moderada tende a reverter, enquanto uma extrema sugere que a correlação foi rompida, sendo, portanto, marcada para evitar a operação.
+
+O desafio de engenharia interessante
+
+O plano gratuito da API de preços (brapi) possui limites de taxa de requisição (*rate limits*). Buscar dados de todos os pares a cada execução esgota rapidamente esse limite. Resolvi isso implementando uma camada de memória local: a cada execução, a ferramenta lê um arquivo CSV com todos os dados já coletados, incorpora os novos dados (*candles*) sem duplicar datas e salva o arquivo atualizado. Com o tempo, a ferramenta constrói seu próprio histórico local de preços e depende menos de chamadas em tempo real — um cache simples que transforma uma limitação rígida da API em algo irrelevante. Como funciona (pipeline)
+Gatilho (Trigger) → gera a lista de pares de ações a serem verificados (agrupados por setor)
+Busca (Fetch) → obtém dados de velas (candles) da brapi, um ticker por vez, com uma pausa entre as requisições para respeitar o limite de taxa (rate limit)
+Cérebro (Nó de código) → alinha as duas séries de preços por data e calcula a razão (ratio), o z-score e a qualidade do sinal para cada par
+Exportação para Excel → um relatório classificado contendo: par, setor, z-score, sinal, indicação de compra/venda, preços e distância percentual
+Ramificação de memória → lê o CSV local → mescla novos dados de velas → salva novamente, permitindo o acúmulo do histórico entre as execuções
+Stack tecnológica
+n8n para orquestração
+API REST da brapi para dados de mercado da B3
+JavaScript (nós de código) para cálculos estatísticos: razão, média móvel/desvio padrão, z-score
+CSV/Excel para persistência local e relatório de saída
+Observação sobre o escopo
+
+Esta é uma ferramenta de triagem e organização de dados; não constitui aconselhamento financeiro nem um sistema de negociação automatizada. Ela destaca divergências estatísticas para análise humana. Os mercados são ruidosos e as correlações podem se romper; um par sinalizado serve como ponto de partida para análise, nunca como uma recomendação direta de negociação.
+
+⚠️ O token da API brapi foi substituído por um marcador (COLE_SEU_TOKEN_AQUI). Insira seu próprio token para executar o fluxo.
