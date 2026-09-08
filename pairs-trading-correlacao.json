@@ -1,0 +1,277 @@
+{
+  "name": "Pairs Trading - Correlacao B3",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "3b23f63f-236f-4890-9e5f-9fe530b51579",
+      "name": "Clicar para Testar",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -704,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n//  MONTAR LOTES — PARES (mesmo setor, andam juntos)\n//  >>> COLE SEU TOKEN DA BRAPI na linha TOKEN abaixo <<<\n//  Modo do node: \"Run Once for All Items\"\n// ============================================================\n\nconst TOKEN = 'COLE_SEU_TOKEN_AQUI';     // <<< troque aqui\nconst RANGE = '3mo';\nconst INTERVAL = '1d';\n\n// Pares da B3 do mesmo setor (tendem a andar juntos).\n// Edite à vontade: [ativoA, ativoB, 'nome do setor']\nconst PARES = [\n  ['ITUB4','BBDC4','Bancos'],\n  ['PETR4','PRIO3','Petróleo'],\n  ['VALE3','CSNA3','Mineração/Siderurgia'],\n  ['ABEV3','CRFB3','Consumo'],\n  ['BBAS3','SANB11','Bancos 2'],\n  ['GGBR4','GOAU4','Siderurgia'],\n  ['ELET3','CMIG4','Energia'],\n  ['CYRE3','MRVE3','Construção']\n];\n\n// junta todos os tickers únicos dos pares (1 requisição por ticker no plano grátis)\nconst unicos = [];\nfor (const [a,b] of PARES) { if(!unicos.includes(a)) unicos.push(a); if(!unicos.includes(b)) unicos.push(b); }\n\nconst lotes = [];\nfor (const t of unicos) {\n  lotes.push({ json: {\n    url: 'https://brapi.dev/api/quote/' + encodeURIComponent(t) + '?range=' + RANGE + '&interval=' + INTERVAL + '&token=' + TOKEN,\n    lote: t\n  }});\n}\nreturn lotes;\n"
+      },
+      "id": "e06185b4-d1c9-4bc1-81f1-ac766fae92b3",
+      "name": "Montar Lotes (cole o token)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -496,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 700
+            }
+          }
+        }
+      },
+      "id": "87d6d385-632b-45a4-8893-4e0448cf294a",
+      "name": "Buscar Candles (brapi)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -256,
+        144
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n//  PAIRS TRADING v4 — BLOCO ÚNICO + qualidade do sinal (distância moderada = melhor)\n//  Este único nó busca os ativos (devagar, p/ não tomar corte\n//  da brapi) e calcula os pares. Substitui \"Montar Lotes\",\n//  \"Buscar Candles\" E o cérebro — é tudo aqui.\n//\n//  COMO USAR:\n//   - Fluxo: [Clicar para Testar] -> [ESTE nó] -> [Gerar Excel]\n//   - Cole SEU TOKEN da brapi na linha TOKEN abaixo.\n//   - Modo do nó: \"Run Once for All Items\"\n// ============================================================\n\n// ---------- AJUSTES ----------\nconst TOKEN = 'COLE_SEU_TOKEN_AQUI';   // <<< troque aqui\nconst RANGE = '3mo';\nconst PAUSA_MS = 350;      // pausa entre cada busca (evita corte por velocidade)\nconst JANELA = 60;         // dias p/ a \"distância normal\" do par\nconst Z_ENTRADA = 2.0;     // esticou 2 desvios = sinal\nconst Z_FORTE = 2.5;\n\nconst PARES = [\n  // Bancos\n  ['ITUB4','BBDC4','Bancos'],\n  ['BBAS3','SANB11','Bancos 2'],\n  ['ITUB4','BBAS3','Bancos 3'],\n  // Petróleo / combustível\n  ['PETR4','PRIO3','Petróleo'],\n  ['PETR3','PETR4','Petrobras ON/PN'],\n  ['VBBR3','UGPA3','Distribuição comb.'],\n  // Mineração / siderurgia\n  ['VALE3','CSNA3','Mineração/Sider.'],\n  ['GGBR4','GOAU4','Siderurgia'],\n  ['CSNA3','GGBR4','Siderurgia 2'],\n  ['CMIN3','VALE3','Mineração 2'],\n  // Energia elétrica\n  ['ELET3','CMIG4','Energia'],\n  ['EQTL3','ENGI11','Energia 2'],\n  ['CPFE3','CMIG4','Energia 3'],\n  // Construção / shoppings\n  ['CYRE3','MRVE3','Construção'],\n  ['EZTC3','CYRE3','Construção 2'],\n  ['MULT3','IGTI11','Shoppings'],\n  // Proteína / consumo\n  ['JBSS3','BEEF3','Frigoríficos'],\n  // Varejo\n  ['LREN3','GMAT3','Varejo'],\n  ['RADL3','RAIZ4','Farmácia/Energia'],\n  // Papel / celulose\n  ['SUZB3','KLBN11','Papel/Celulose'],\n  // Bolsa / seguros\n  ['B3SA3','BPAC11','Financeiro'],\n  ['BBSE3','PSSA3','Seguros'],\n  ['WEGE3','EMBR3','Industrial'],\n  ['RENT3','VAMO3','Locação']\n];\n// -----------------------------\n\n// 1) lista de tickers únicos\nconst unicos = [];\nfor (const [a,b] of PARES) { if(!unicos.includes(a)) unicos.push(a); if(!unicos.includes(b)) unicos.push(b); }\n\n// 2) buscar cada um, com pausa entre as buscas\nconst porSimbolo = {};\nconst erros = [];\nfor (const t of unicos) {\n  const url = 'https://brapi.dev/api/quote/' + encodeURIComponent(t) + '?range=' + RANGE + '&interval=1d&token=' + TOKEN;\n  try {\n    const resp = await this.helpers.httpRequest({ method: 'GET', url: url, json: true });\n    const r = (resp && resp.results && resp.results[0]) ? resp.results[0] : null;\n    const candles = r && r.historicalDataPrice ? r.historicalDataPrice : [];\n    porSimbolo[t] = candles\n      .filter(c => c && typeof c.close === 'number' && c.date)\n      .sort((x,y)=>x.date-y.date);\n  } catch (e) {\n    porSimbolo[t] = [];\n    erros.push(t);\n  }\n  await new Promise(res => setTimeout(res, PAUSA_MS));\n}\n\n// 3) calcular os pares\nfunction alinhar(cA, cB) {\n  const mapB = {}; for (const c of cB) mapB[c.date] = c.close;\n  const ra = [], rb = [];\n  for (const c of cA) if (mapB[c.date] !== undefined) { ra.push(c.close); rb.push(mapB[c.date]); }\n  return { a: ra, b: rb };\n}\n\nconst saida = [];\nfor (const [simA, simB, setor] of PARES) {\n  const cA = porSimbolo[simA] || [], cB = porSimbolo[simB] || [];\n  if (cA.length < 20 || cB.length < 20) {\n    const faltou = [];\n    if (cA.length < 20) faltou.push(simA + ' (' + cA.length + ')');\n    if (cB.length < 20) faltou.push(simB + ' (' + cB.length + ')');\n    saida.push({ json: { par: simA+' / '+simB, setor, status:'DADOS INSUFICIENTES', zscore:null, temSinal:'nao',\n      resumo: simA+' / '+simB+': faltou histórico -> ' + faltou.join(' e ') } });\n    continue;\n  }\n  const al = alinhar(cA, cB);\n  if (al.a.length < 20) {\n    saida.push({ json: { par: simA+' / '+simB, setor, status:'POUCAS DATAS EM COMUM', zscore:null, temSinal:'nao',\n      resumo: simA+' / '+simB+': poucas datas coincidentes ('+al.a.length+').' } });\n    continue;\n  }\n\n  const razao = al.a.map((v,i)=> v / al.b[i]);\n  const jan = razao.slice(-JANELA);\n  const media = jan.reduce((s,x)=>s+x,0)/jan.length;\n  let varc = 0; for (const x of jan) varc += (x-media)*(x-media);\n  const desvio = Math.sqrt(varc/jan.length);\n  const razaoHoje = razao[razao.length-1];\n  const z = desvio>0 ? (razaoHoje-media)/desvio : 0;\n  const precoA = al.a[al.a.length-1], precoB = al.b[al.b.length-1];\n  const absЗ = Math.abs(z);\n\n  let sinal='NEUTRO (dentro do normal)', comprar='-', vender='-', forca='-';\n  if (absЗ >= Z_ENTRADA) {\n    forca = absЗ >= Z_FORTE ? 'FORTE' : 'moderado';\n    if (z > 0) { comprar = simB; vender = simA; sinal = simA+' cara vs '+simB; }\n    else { comprar = simA; vender = simB; sinal = simB+' cara vs '+simA; }\n  }\n  const distPct = media>0 ? ((razaoHoje-media)/media)*100 : 0;\n  const temSinal = absЗ >= Z_ENTRADA;\n\n  // qualidade do sinal: distância MODERADA reverte; distância ENORME = provável quebra de correlação\n  let qualidade = '-';\n  if (temSinal) {\n    const ad = Math.abs(distPct);\n    if (ad <= 12) qualidade = 'BOM (dist. moderada, tende a reverter)';\n    else if (ad <= 20) qualidade = 'ATENCAO (dist. alta)';\n    else qualidade = 'EVITAR (dist. enorme = correlação pode ter quebrado)';\n  }\n\n  saida.push({ json: {\n    par: simA+' / '+simB, setor,\n    zscore: Number(z.toFixed(2)),\n    temSinal: temSinal ? 'SIM' : 'nao',\n    forcaSinal: temSinal ? forca : '-',\n    qualidade: qualidade,\n    sinal, comprar, vender,\n    precoA: Number(precoA.toFixed(2)),\n    precoB: Number(precoB.toFixed(2)),\n    distanciaPct: Number(distPct.toFixed(1)),\n    resumo: (temSinal ? '[SINAL '+forca+'] ' : '[sem sinal] ') + setor + ': ' + simA+'/'+simB +\n            ' | z=' + z.toFixed(2) + (temSinal ? ' | COMPRAR '+comprar+' + VENDER '+vender : '') +\n            ' | dist ' + distPct.toFixed(1) + '%' + (temSinal ? ' | ' + qualidade : '')\n  }});\n}\n\nsaida.sort((a,b)=> Math.abs(b.json.zscore||0) - Math.abs(a.json.zscore||0));\nreturn saida;\n"
+      },
+      "id": "974d1eaf-3ee7-48a5-8938-5add648fb581",
+      "name": "Cerebro do Funil",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "options": {}
+      },
+      "id": "3a4f263e-ea44-461f-ab30-1065e19077b6",
+      "name": "Gerar Excel",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "5d097282-75d8-4f50-89b4-8cfacb9d3c69",
+      "name": "Manter 1",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        0,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "fileSelector": "C:/Users/Public/memoria.csv",
+        "options": {}
+      },
+      "id": "16cae41a-2163-4a0b-beee-824dd67703c2",
+      "name": "Ler Memoria",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        192,
+        288
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "136ea2bd-6dbb-4388-8e17-65a56d429aab",
+      "name": "Extrair CSV",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        368,
+        288
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n//  ATUALIZAR MEMÓRIA — junta o histórico já salvo (CSV) com os\n//  candles novos da rodada de hoje, sem duplicar datas.\n//  Entrada (input): linhas do CSV antigo (vindas do \"Extrair CSV\").\n//  Também lê os candles do node \"Buscar Candles (brapi)\".\n//  Modo do node: \"Run Once for All Items\"\n// ============================================================\n\nconst mapa = new Map(); // chave: TICKER|DATA  ->  {ticker, date, close}\n\n// 1) carregar o histórico que já existe no CSV\nfor (const it of $input.all()) {\n  const j = it.json || {};\n  if (j.ticker && j.date) {\n    mapa.set(j.ticker + '|' + j.date, {\n      ticker: String(j.ticker),\n      date: String(j.date),\n      close: Number(j.close)\n    });\n  }\n}\n\n// 2) acrescentar os candles novos vindos da brapi\nconst lotes = $('Buscar Candles (brapi)').all();\nfor (const it of lotes) {\n  const results = (it.json && it.json.results) || [];\n  for (const ativo of results) {\n    const sym = ativo.symbol;\n    if (!sym) continue;\n    const candles = ativo.historicalDataPrice || [];\n    for (const c of candles) {\n      if (!c || typeof c.close !== 'number' || !c.date) continue;\n      const d = new Date(c.date * 1000).toISOString().slice(0, 10); // AAAA-MM-DD\n      mapa.set(sym + '|' + d, { ticker: sym, date: d, close: c.close });\n    }\n  }\n}\n\n// 3) devolver tudo ordenado (ticker, depois data)\nconst linhas = Array.from(mapa.values())\n  .sort((a, b) => a.ticker.localeCompare(b.ticker) || a.date.localeCompare(b.date));\n\nreturn linhas.map(l => ({ json: l }));\n"
+      },
+      "id": "e60b0c11-99f2-4ba3-838f-32c4280d40d3",
+      "name": "Atualizar Memoria",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        544,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "8a273654-9ec9-4c6b-a28f-b950235e7ca1",
+      "name": "Gerar CSV",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "C:/Users/Public/memoria.csv",
+        "options": {}
+      },
+      "id": "30c606c7-ae56-48a8-bbee-75f2a33e62cd",
+      "name": "Salvar Memoria",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        912,
+        288
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Clicar para Testar": {
+      "main": [
+        [
+          {
+            "node": "Montar Lotes (cole o token)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar Lotes (cole o token)": {
+      "main": [
+        [
+          {
+            "node": "Buscar Candles (brapi)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Candles (brapi)": {
+      "main": [
+        [
+          {
+            "node": "Cerebro do Funil",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Manter 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cerebro do Funil": {
+      "main": [
+        [
+          {
+            "node": "Gerar Excel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manter 1": {
+      "main": [
+        [
+          {
+            "node": "Ler Memoria",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ler Memoria": {
+      "main": [
+        [
+          {
+            "node": "Extrair CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extrair CSV": {
+      "main": [
+        [
+          {
+            "node": "Atualizar Memoria",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Atualizar Memoria": {
+      "main": [
+        [
+          {
+            "node": "Gerar CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gerar CSV": {
+      "main": [
+        [
+          {
+            "node": "Salvar Memoria",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "meta": {
+    "instanceId": "db22b77af1e908916c972291f41df53e82c95652d6cd6fbda407c0789bd98956"
+  },
+  "nodeGroups": [],
+  "tags": []
+}

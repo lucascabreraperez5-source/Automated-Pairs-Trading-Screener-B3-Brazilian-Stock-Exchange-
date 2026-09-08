@@ -1,0 +1,248 @@
+{
+  "name": "Funil de Ativos B3",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "7cca8d4f-86c5-4191-a856-952da5e09417",
+      "name": "Clicar para Testar",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -704,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n//  MONTAR LOTES — lista de ~100 ações (IBrX) dividida em grupos\n//  >>> COLE SEU TOKEN DA BRAPI na linha TOKEN abaixo <<<\n//  Modo do node: \"Run Once for All Items\"\n// ============================================================\n\nconst TOKEN = 'COLE_SEU_TOKEN_AQUI';     // <<< troque aqui\nconst TICKERS_POR_LOTE = 1;              // plano grátis: 1 ação por requisição\nconst RANGE = '3mo';                      // plano grátis: máximo 3 meses\nconst INTERVAL = '1d';                    // candle diário\n\n// Universo de ações líquidas (IBrX) — edite à vontade.\nconst tickers = [\n  'ABEV3','ALOS3','ALPA4','ASAI3','AURE3','AZUL4','AZZA3','B3SA3','BBAS3','BBDC3',\n  'BBDC4','BBSE3','BEEF3','BPAC11','BRAP4','BRFS3','BRKM5','CCRO3','CMIG4','CMIN3',\n  'COGN3','CPFE3','CPLE6','CRFB3','CSAN3','CSNA3','CVCB3','CXSE3','CYRE3','DXCO3',\n  'EGIE3','ELET3','ELET6','EMBR3','ENEV3','ENGI11','EQTL3','EZTC3','FLRY3','GGBR4',\n  'GMAT3','GOAU4','HAPV3','HYPE3','IGTI11','ITSA4','ITUB4','JBSS3','KLBN11','LREN3',\n  'LWSA3','MGLU3','MRFG3','MRVE3','MULT3','NTCO3','PCAR3','PETR3','PETR4','PETZ3',\n  'PRIO3','PSSA3','RADL3','RAIL3','RAIZ4','RDOR3','RECV3','RENT3','SANB11','SBSP3',\n  'SLCE3','SMTO3','SUZB3','TAEE11','TIMS3','TOTS3','TRPL4','UGPA3','USIM5','VALE3',\n  'VAMO3','VBBR3','VIVA3','VIVT3','WEGE3','YDUQ3','POMO4','CASH3','MOVI3','SMFT3'\n];\n\nconst lotes = [];\nfor (let i = 0; i < tickers.length; i += TICKERS_POR_LOTE) {\n  const grupo = tickers.slice(i, i + TICKERS_POR_LOTE);\n  const url = 'https://brapi.dev/api/quote/' + grupo.join(',') +\n              '?range=' + RANGE + '&interval=' + INTERVAL + '&token=' + TOKEN;\n  lotes.push({ json: { url: url, lote: grupo.join(',') } });\n}\nreturn lotes;\n"
+      },
+      "id": "c1aa6f96-3c87-4121-968c-b7d0c31a3aec",
+      "name": "Montar Lotes (cole o token)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "options": {}
+      },
+      "id": "fce18cad-0255-4fa5-800d-6cb979a7acc4",
+      "name": "Buscar Candles (brapi)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -240,
+        128
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n//  CÉREBRO v13 — SCANNER + AVALIAÇÃO 3:1 (cabe alvo de 3x o stop antes do nível?)\n//  Lê o ^BVSP junto e diz se o ativo está A FAVOR ou CONTRA a maré.\n//  Mostra: força + direção da tendência, suportes/resistências\n//  históricos, distância até eles, e rompimento/teste de nível.\n//  Você decide no gráfico. Cole no node \"Cerebro do Funil\".\n//  Modo do node: \"Run Once for All Items\"\n// ============================================================\n\n// ---------- AJUSTES ----------\nconst EMA_CURTO = 9, EMA_LONGO = 21, EMA_MEDIA = 50;\nconst PERIODO_ADX = 14, PERIODO_RSI = 14, PERIODO_ATR = 14;\nconst JANELA_PIVO = 5;        // candles de cada lado p/ definir topo/fundo\nconst TOL_NIVEL_PCT = 1.5;    // \"testando\" um nível se estiver a até 1.5%\nconst JANELA_NORMAL = 20;     // dias p/ calcular o \"normal\" de cada ativo\nconst STOCH_PERIODO = 14;     // estocástico\nconst MULT_STOP_CURTO = 1.0;  // stop curto = 1x ATR (mínimo seguro)\nconst MULT_ALVO_31 = 3.0;     // alvo do 3:1 = 3x ATR\nconst MULT_ALVO_CURTO = 1.4;  // alvo curto = 1.4x ATR (atingível em 1-3 dias)\nconst STOCH_SUAV = 3;\n// -----------------------------\n\nfunction ema(v, n) {\n  if (v.length < n) return [];\n  const k = 2 / (n + 1), out = [];\n  let s = 0; for (let i = 0; i < n; i++) s += v[i];\n  out[n - 1] = s / n;\n  for (let i = n; i < v.length; i++) out[i] = v[i] * k + out[i - 1] * (1 - k);\n  return out;\n}\nfunction computeRSI(c, n) {\n  if (c.length < n + 1) return null;\n  let g = 0, l = 0;\n  for (let i = 1; i <= n; i++) { const d = c[i] - c[i-1]; if (d >= 0) g += d; else l -= d; }\n  let ag = g/n, al = l/n;\n  for (let i = n+1; i < c.length; i++) { const d = c[i]-c[i-1]; ag=(ag*(n-1)+(d>0?d:0))/n; al=(al*(n-1)+(d<0?-d:0))/n; }\n  if (al === 0) return 100;\n  return 100 - 100/(1 + ag/al);\n}\nfunction computeATR(h, l, c, n) {\n  if (c.length < n+1) return null;\n  const tr = [];\n  for (let i = 1; i < c.length; i++) tr.push(Math.max(h[i]-l[i], Math.abs(h[i]-c[i-1]), Math.abs(l[i]-c[i-1])));\n  let a = 0; for (let i = 0; i < n; i++) a += tr[i]; a /= n;\n  for (let i = n; i < tr.length; i++) a = (a*(n-1)+tr[i])/n;\n  return a;\n}\nfunction computeADX(h, l, c, n) {\n  if (c.length < n*2+2) return null;\n  const tr=[], p=[], m=[];\n  for (let i=1;i<c.length;i++){\n    const up=h[i]-h[i-1], dn=l[i-1]-l[i];\n    p.push((up>dn&&up>0)?up:0); m.push((dn>up&&dn>0)?dn:0);\n    tr.push(Math.max(h[i]-l[i],Math.abs(h[i]-c[i-1]),Math.abs(l[i]-c[i-1])));\n  }\n  function sm(a){const o=[];let s=0;for(let i=0;i<n;i++)s+=a[i];o[n-1]=s;for(let i=n;i<a.length;i++)o[i]=o[i-1]-o[i-1]/n+a[i];return o;}\n  const st=sm(tr), sp=sm(p), smi=sm(m), dx=[];\n  for(let i=n-1;i<tr.length;i++){if(!st[i]){dx.push(0);continue;}const pd=100*sp[i]/st[i],md=100*smi[i]/st[i],de=pd+md;dx.push(de===0?0:100*Math.abs(pd-md)/de);}\n  if(dx.length<n)return null;\n  let adx=0;for(let i=0;i<n;i++)adx+=dx[i];adx/=n;\n  for(let i=n;i<dx.length;i++)adx=(adx*(n-1)+dx[i])/n;\n  const last=tr.length-1;\n  return {adx:adx, plusDI:st[last]?100*sp[last]/st[last]:0, minusDI:st[last]?100*smi[last]/st[last]:0};\n}\n\n// Estocástico (%K e %D)\nfunction computeStoch(highs, lows, closes, period, suav) {\n  const n = closes.length;\n  if (n < period + suav) return null;\n  const kArr = [];\n  for (let i = period - 1; i < n; i++) {\n    let hh = -Infinity, ll = Infinity;\n    for (let j = i - period + 1; j <= i; j++) { if (highs[j] > hh) hh = highs[j]; if (lows[j] < ll) ll = lows[j]; }\n    kArr.push(hh === ll ? 50 : 100 * (closes[i] - ll) / (hh - ll));\n  }\n  const k = kArr[kArr.length - 1];\n  let d = 0; for (let x = kArr.length - suav; x < kArr.length; x++) d += kArr[x];\n  d = d / suav;\n  return { k: k, d: d };\n}\n\n// Suportes/resistências por pivôs (topos e fundos), agrupados em níveis\nfunction niveisSR(h, l, janela, tolPct) {\n  const n = h.length, pivos = [];\n  for (let i = janela; i < n - janela; i++) {\n    let topo = true, fundo = true;\n    for (let j = i-janela; j <= i+janela; j++) { if (h[j] > h[i]) topo = false; if (l[j] < l[i]) fundo = false; }\n    if (topo) pivos.push(h[i]);\n    if (fundo) pivos.push(l[i]);\n  }\n  pivos.sort((a,b)=>a-b);\n  const niveis = [];\n  for (const pv of pivos) {\n    let achou = false;\n    for (const nv of niveis) {\n      if (Math.abs(pv-nv.preco)/nv.preco <= tolPct/100) { nv.preco=(nv.preco*nv.toques+pv)/(nv.toques+1); nv.toques++; achou=true; break; }\n    }\n    if (!achou) niveis.push({preco: pv, toques: 1});\n  }\n  return niveis;\n}\n\n// ===== processamento =====\nconst _items = $input.all();\nlet results = [];\nfor (const _it of _items) if (_it.json && Array.isArray(_it.json.results)) results = results.concat(_it.json.results);\n\n// ===== CLIMA DE MERCADO (Ibovespa) =====\nlet climaMercado = 'INDISPONIVEL', ibovAdx = null, ibovStoch = null;\nconst idxIbov = results.findIndex(r => r && typeof r.symbol === 'string' && r.symbol.indexOf('BVSP') !== -1);\nif (idxIbov !== -1) {\n  const ib = results.splice(idxIbov, 1)[0];   // tira o índice da lista de ações\n  const ic = (ib.historicalDataPrice || [])\n    .filter(x => x && typeof x.close === 'number' && x.date)\n    .sort((a,b)=>a.date-b.date);\n  if (ic.length >= 35) {\n    const cc = ic.map(x=>x.close), hh = ic.map(x=>x.high), ll = ic.map(x=>x.low);\n    const ie9 = ema(cc, EMA_CURTO), ie21 = ema(cc, EMA_LONGO);\n    const iAdxObj = computeADX(hh, ll, cc, PERIODO_ADX);\n    const iStochObj = computeStoch(hh, ll, cc, STOCH_PERIODO, STOCH_SUAV);\n    ibovAdx = iAdxObj ? Number(iAdxObj.adx.toFixed(1)) : null;\n    ibovStoch = iStochObj ? Number(iStochObj.k.toFixed(0)) : null;\n    const a9 = ie9[ie9.length-1], a21 = ie21[ie21.length-1];\n    if (a9 !== undefined && a21 !== undefined && iAdxObj) {\n      const emaUp = a9 > a21, diUp = iAdxObj.plusDI >= iAdxObj.minusDI;\n      if (iAdxObj.adx < 20) climaMercado = 'LATERAL';\n      else if (emaUp && diUp) climaMercado = 'ALTA';\n      else if (!emaUp && !diUp) climaMercado = 'BAIXA';\n      else climaMercado = 'INDEFINIDO';\n    }\n  }\n}\n\nconst saida = [];\nfor (const ativo of results) {\n  const candles = (ativo.historicalDataPrice || [])\n    .filter(c => c && typeof c.close === 'number' && c.date)\n    .sort((a,b)=>a.date-b.date);\n  if (candles.length < 35) {\n    saida.push({ json: { simbolo: ativo.symbol||'?', status:'DADOS INSUFICIENTES', interesse:0, resumo:(ativo.symbol||'?')+': histórico curto.' } });\n    continue;\n  }\n  const c = candles.map(x=>x.close), h = candles.map(x=>x.high), l = candles.map(x=>x.low);\n  const preco = c[c.length-1], precoOntem = c[c.length-2];\n\n  const e9 = ema(c, EMA_CURTO), e21 = ema(c, EMA_LONGO), e50 = ema(c, EMA_MEDIA);\n  const rsi = computeRSI(c, PERIODO_RSI);\n  const atr = computeATR(h, l, c, PERIODO_ATR);\n  const volumes = candles.map(x=>x.volume||0);\n\n  // ===== NOTA DE ANORMALIDADE (relativa a CADA ativo) =====\n  const rets = [];\n  for (let k = c.length - JANELA_NORMAL; k < c.length; k++) { if (k > 0) rets.push((c[k]-c[k-1])/c[k-1]); }\n  const mediaRet = rets.reduce((a,b)=>a+b,0)/(rets.length||1);\n  let variancia = 0; for (const x of rets) variancia += (x-mediaRet)*(x-mediaRet);\n  const desvio = Math.sqrt(variancia/(rets.length||1));\n  const retHoje = c.length>1 ? (c[c.length-1]-c[c.length-2])/c[c.length-2] : 0;\n  const movAnormal = desvio>0 ? Math.abs(retHoje)/desvio : 0;\n  const amplitudeHoje = h[h.length-1]-l[l.length-1];\n  const amplAnormal = (atr && atr>0) ? amplitudeHoje/atr : 0;\n  const volHoje = volumes[volumes.length-1];\n  const volMedia = volumes.slice(-JANELA_NORMAL).reduce((a,b)=>a+b,0)/Math.min(JANELA_NORMAL, volumes.length);\n  const volAnormal = volMedia>0 ? volHoje/volMedia : 0;\n  let anormalidade = 0;\n  anormalidade += Math.min(45, movAnormal*18);\n  anormalidade += Math.min(25, amplAnormal*15);\n  anormalidade += Math.min(30, (volAnormal-1)*20);\n  anormalidade = Math.max(0, Math.min(100, Math.round(anormalidade)));\n  let rotuloAnorm = anormalidade>=70 ? 'MUITO ANORMAL' : (anormalidade>=45 ? 'ACIMA DO NORMAL' : 'normal');\n\n  // ===== ESTOCÁSTICO (valor) =====\n  const stochObj = computeStoch(h, l, c, STOCH_PERIODO, STOCH_SUAV);\n  const stoch = stochObj ? stochObj.k : null;\n  const adxObj = computeADX(h, l, c, PERIODO_ADX);\n  const adx = adxObj ? adxObj.adx : null;\n\n  // força e direção (direção CONFIRMADA pela EMA9 x EMA21)\n  let forca = 'FRACA', direcao = 'LATERAL';\n  const _e9 = e9[e9.length-1], _e21 = e21[e21.length-1];\n  const emaAlta = (_e9 !== undefined && _e21 !== undefined) ? _e9 > _e21 : null;\n  if (adx !== null) {\n    if (adx >= 25) forca = 'FORTE'; else if (adx >= 20) forca = 'MODERADA'; else forca = 'FRACA';\n    if (adx < 20 || emaAlta === null || !adxObj) {\n      direcao = 'LATERAL';\n    } else {\n      const diAlta = adxObj.plusDI >= adxObj.minusDI;\n      if (emaAlta && diAlta) direcao = 'ALTA';\n      else if (!emaAlta && !diAlta) direcao = 'BAIXA';\n      else if (!emaAlta && diAlta) direcao = 'POSSIVEL REVERSAO P/ ALTA';  // repique dentro de uma baixa\n      else direcao = 'POSSIVEL REVERSAO P/ BAIXA';                          // fraqueza dentro de uma alta\n    }\n  }\n\n  // ===== TIMING DE ENTRADA pelo estocástico (relativo à direção) =====\n  let timingEntrada = '-';\n  if (stoch !== null) {\n    const ladoCompra = (direcao === 'ALTA' || direcao === 'POSSIVEL REVERSAO P/ ALTA');\n    const ladoVenda  = (direcao === 'BAIXA' || direcao === 'POSSIVEL REVERSAO P/ BAIXA');\n    if (ladoCompra) {\n      if (stoch >= 80) timingEntrada = 'ESTICADO (tarde p/ comprar)';\n      else if (stoch <= 35) timingEntrada = 'BOM (espaco p/ subir)';\n      else timingEntrada = 'NEUTRO';\n    } else if (ladoVenda) {\n      if (stoch <= 20) timingEntrada = 'ESTICADO (tarde p/ vender)';\n      else if (stoch >= 65) timingEntrada = 'BOM (espaco p/ cair)';\n      else timingEntrada = 'NEUTRO';\n    }\n  }\n\n  // ===== ALINHAMENTO COM O MERCADO =====\n  let vsMercado = '-';\n  if (climaMercado === 'ALTA' || climaMercado === 'BAIXA') {\n    const ladoAlta = (direcao === 'ALTA' || direcao === 'POSSIVEL REVERSAO P/ ALTA');\n    const ladoBaixa = (direcao === 'BAIXA' || direcao === 'POSSIVEL REVERSAO P/ BAIXA');\n    if (ladoAlta && climaMercado === 'ALTA') vsMercado = 'A FAVOR DA MARE';\n    else if (ladoBaixa && climaMercado === 'BAIXA') vsMercado = 'A FAVOR DA MARE';\n    else if (ladoAlta && climaMercado === 'BAIXA') vsMercado = 'CONTRA A MARE';\n    else if (ladoBaixa && climaMercado === 'ALTA') vsMercado = 'CONTRA A MARE';\n  } else if (climaMercado === 'LATERAL') vsMercado = 'MERCADO LATERAL';\n\n  // ===== STOP e ALVO CURTOS (referência, calibrados no ATR do ativo) =====\n  let stopCurto = null, alvoCurto = null;\n  if (atr && atr > 0) {\n    const compra = (direcao === 'ALTA' || direcao === 'POSSIVEL REVERSAO P/ ALTA');\n    const venda  = (direcao === 'BAIXA' || direcao === 'POSSIVEL REVERSAO P/ BAIXA');\n    if (compra) { stopCurto = preco - MULT_STOP_CURTO*atr; alvoCurto = preco + MULT_ALVO_CURTO*atr; }\n    else if (venda) { stopCurto = preco + MULT_STOP_CURTO*atr; alvoCurto = preco - MULT_ALVO_CURTO*atr; }\n  }\n\n  // suportes/resistências\n  const niveis = niveisSR(h, l, JANELA_PIVO, TOL_NIVEL_PCT);\n  let resAcima = null, supAbaixo = null;\n  for (const nv of niveis) {\n    if (nv.preco > preco && (resAcima === null || nv.preco < resAcima.preco)) resAcima = nv;\n    if (nv.preco < preco && (supAbaixo === null || nv.preco > supAbaixo.preco)) supAbaixo = nv;\n  }\n  const distRes = resAcima ? (resAcima.preco/preco - 1)*100 : null;\n\n  // ===== AVALIAÇÃO 3:1 (cabe um alvo de 3x o stop antes do próximo nível?) =====\n  let alvo31 = null, da31 = 'nao', motivo31 = '';\n  if (atr && atr > 0 && (direcao === 'ALTA' || direcao === 'POSSIVEL REVERSAO P/ ALTA' || direcao === 'BAIXA' || direcao === 'POSSIVEL REVERSAO P/ BAIXA')) {\n    const compra = (direcao === 'ALTA' || direcao === 'POSSIVEL REVERSAO P/ ALTA');\n    const distAlvo = MULT_ALVO_31 * atr;   // 3x o stop (que é 1x ATR)\n    if (compra) {\n      alvo31 = preco + distAlvo;\n      if (resAcima && resAcima.preco < alvo31) { da31 = 'nao'; motivo31 = 'resistência em ' + resAcima.preco.toFixed(2) + ' bloqueia'; }\n      else { da31 = 'SIM'; motivo31 = 'caminho livre até ' + alvo31.toFixed(2); }\n    } else {\n      alvo31 = preco - distAlvo;\n      if (supAbaixo && supAbaixo.preco > alvo31) { da31 = 'nao'; motivo31 = 'suporte em ' + supAbaixo.preco.toFixed(2) + ' bloqueia'; }\n      else { da31 = 'SIM'; motivo31 = 'caminho livre até ' + alvo31.toFixed(2); }\n    }\n  } else {\n    motivo31 = 'sem direção clara';\n  }\n  const distSup = supAbaixo ? (1 - supAbaixo.preco/preco)*100 : null;\n\n  // rompimento hoje (close de ontem de um lado, hoje do outro)\n  let statusNivel = 'ENTRE NIVEIS', nivelRompido = null;\n  for (const nv of niveis) {\n    if (precoOntem < nv.preco && preco >= nv.preco) { statusNivel = 'ROMPEU RESISTENCIA'; nivelRompido = nv.preco; }\n    if (precoOntem > nv.preco && preco <= nv.preco) { statusNivel = 'ROMPEU SUPORTE'; nivelRompido = nv.preco; }\n  }\n  if (statusNivel === 'ENTRE NIVEIS') {\n    if (distRes !== null && distRes <= TOL_NIVEL_PCT) statusNivel = 'TESTANDO RESISTENCIA';\n    else if (distSup !== null && distSup <= TOL_NIVEL_PCT) statusNivel = 'TESTANDO SUPORTE';\n  }\n\n  // status do cruzamento (info extra)\n  const i9 = e9.length-1, i21 = e21.length-1;\n  let cruz = '-';\n  if (e9[i9] !== undefined && e21[i21] !== undefined) cruz = e9[i9] >= e21[i21] ? 'EMA9>EMA21' : 'EMA9<EMA21';\n\n  // SCORE DE INTERESSE (0-100): momentos que merecem seu olho\n  let interesse = 0;\n  if (adx !== null) interesse += Math.min(50, adx * 2);          // força da tendência\n  if (statusNivel.indexOf('ROMPEU') !== -1) interesse += 30;     // acabou de romper\n  else if (statusNivel.indexOf('TESTANDO') !== -1) interesse += 20; // encostando num nível\n  // bônus: rompimento na direção da tendência\n  if (statusNivel === 'ROMPEU RESISTENCIA' && direcao === 'ALTA') interesse += 20;\n  if (statusNivel === 'ROMPEU SUPORTE' && direcao === 'BAIXA') interesse += 20;\n  if (timingEntrada.indexOf('BOM') !== -1) interesse += 10;\n  if (timingEntrada.indexOf('ESTICADO') !== -1) interesse -= 15;\n  if (vsMercado === 'A FAVOR DA MARE') interesse += 12;\n  if (vsMercado === 'CONTRA A MARE') interesse -= 20;\n  if (da31 === 'SIM') interesse += 10;\n  interesse = Math.max(0, Math.min(100, Math.round(interesse)));\n\n  // ===== CHECKLIST: quantos dos 4 criterios bateram =====\n  const okMercado = (vsMercado === 'A FAVOR DA MARE');\n  const okDirecao = (direcao === 'ALTA' || direcao === 'BAIXA');\n  const okTiming  = (timingEntrada.indexOf('BOM') !== -1);\n  const okForca   = (adx !== null && adx >= 25);\n  const listaOK = [], listaFalta = [];\n  (okMercado ? listaOK : listaFalta).push('MERCADO');\n  (okDirecao ? listaOK : listaFalta).push('DIRECAO');\n  (okTiming  ? listaOK : listaFalta).push('TIMING');\n  (okForca   ? listaOK : listaFalta).push('FORCA');\n  const pontos = listaOK.length;\n  const criteriosOK = listaOK.length ? listaOK.join(', ') : '-';\n  const criteriosFalta = listaFalta.length ? listaFalta.join(', ') : 'nenhum (4/4)';\n\n  const f2 = (x)=> x===null ? '-' : x.toFixed(2);\n  const p1 = (x)=> x===null ? '-' : (x>=0?'+':'')+x.toFixed(1)+'%';\n  let tendTxt;\n  if (direcao === 'ALTA' || direcao === 'BAIXA') tendTxt = 'tend. ' + forca + ' de ' + direcao + (adx!==null?' (ADX '+adx.toFixed(0)+')':'');\n  else if (direcao === 'LATERAL') tendTxt = 'LATERAL (sem direcao clara)';\n  else tendTxt = '** ' + direcao + ' **' + (adx!==null?' (ADX '+adx.toFixed(0)+')':'');\n  const resumo =\n    '[' + pontos + '/4] ' + ativo.symbol + ' | ' + tendTxt +\n    ' | ' + statusNivel +\n    ' | sup: ' + f2(supAbaixo?supAbaixo.preco:null) + ' (' + p1(distSup) + ')' +\n    ' | res: ' + f2(resAcima?resAcima.preco:null) + ' (' + p1(distRes) + ')' +\n    ' | RSI ' + (rsi!==null?rsi.toFixed(0):'-') +\n    ' | STOCH ' + (stoch!==null?stoch.toFixed(0):'-') + ' [' + timingEntrada + ']' +\n    (stopCurto!==null ? ' | stop~ ' + stopCurto.toFixed(2) + ' | alvo~ ' + alvoCurto.toFixed(2) : '') +\n    ' | MERCADO ' + climaMercado + ' -> ' + vsMercado +\n    ' | ANORM ' + anormalidade + ' (' + rotuloAnorm + ')' +\n    ' | 3:1? ' + da31 +\n    ' | INTERESSE ' + interesse +\n    ' | OK: ' + criteriosOK + (criteriosFalta==='nenhum (4/4)' ? '' : ' | FALTA: ' + criteriosFalta);\n\n  saida.push({ json: {\n    pontos: pontos,\n    criteriosOK: criteriosOK,\n    criteriosFalta: criteriosFalta,\n    da31: da31,\n    alvo31: alvo31!==null?Number(alvo31.toFixed(2)):null,\n    motivo31: motivo31,\n    simbolo: ativo.symbol,\n    preco: Number(preco.toFixed(2)),\n    forcaTendencia: forca,\n    direcao: direcao,\n    adx: adx!==null?Number(adx.toFixed(1)):null,\n    statusNivel: statusNivel,\n    suporteProximo: supAbaixo?Number(supAbaixo.preco.toFixed(2)):null,\n    distSupPct: distSup!==null?Number(distSup.toFixed(2)):null,\n    resistenciaProxima: resAcima?Number(resAcima.preco.toFixed(2)):null,\n    distResPct: distRes!==null?Number(distRes.toFixed(2)):null,\n    nivelRompido: nivelRompido?Number(nivelRompido.toFixed(2)):null,\n    cruzamentoEMA: cruz,\n    rsi: rsi!==null?Number(rsi.toFixed(1)):null,\n    atr: atr!==null?Number(atr.toFixed(2)):null,\n    stoch: stoch!==null?Number(stoch.toFixed(0)):null,\n    timingEntrada: timingEntrada,\n    climaMercado: climaMercado,\n    vsMercado: vsMercado,\n    stopCurtoSugerido: stopCurto!==null?Number(stopCurto.toFixed(2)):null,\n    alvoCurtoSugerido: alvoCurto!==null?Number(alvoCurto.toFixed(2)):null,\n    movDesvios: Number(movAnormal.toFixed(1)),\n    volVezes: Number(volAnormal.toFixed(1)),\n    anormalidade: anormalidade,\n    rotuloAnormalidade: rotuloAnorm,\n    interesse: interesse,\n    resumo: resumo\n  } });\n}\n\nsaida.sort((a,b)=>{\n  const pa=(a.json.pontos||0), pb=(b.json.pontos||0);\n  if (pb!==pa) return pb-pa;\n  return (b.json.interesse||0)-(a.json.interesse||0);\n});\nreturn saida;\n"
+      },
+      "id": "785600c0-46e5-4a59-8ba8-b662e8fdd3fc",
+      "name": "Cerebro do Funil",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "options": {}
+      },
+      "id": "a8c7e819-a10e-4780-a6f7-f2a68e3aa574",
+      "name": "Gerar Excel",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "fileSelector": "C:/Users/Public/memoria.csv",
+        "options": {}
+      },
+      "id": "e474c7ab-52a9-4c2c-aa92-82d124f7229e",
+      "name": "Ler Memoria",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        0,
+        240
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "06272653-c7fa-4c98-b404-494514b98aa8",
+      "name": "Extrair CSV",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        208,
+        240
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n//  ATUALIZAR MEMÓRIA — junta o histórico já salvo (CSV) com os\n//  candles novos da rodada de hoje, sem duplicar datas.\n//  Entrada (input): linhas do CSV antigo (vindas do \"Extrair CSV\").\n//  Também lê os candles do node \"Buscar Candles (brapi)\".\n//  Modo do node: \"Run Once for All Items\"\n// ============================================================\n\nconst mapa = new Map(); // chave: TICKER|DATA  ->  {ticker, date, close}\n\n// 1) carregar o histórico que já existe no CSV\nfor (const it of $input.all()) {\n  const j = it.json || {};\n  if (j.ticker && j.date) {\n    mapa.set(j.ticker + '|' + j.date, {\n      ticker: String(j.ticker),\n      date: String(j.date),\n      close: Number(j.close)\n    });\n  }\n}\n\n// 2) acrescentar os candles novos vindos da brapi\nconst lotes = $('Buscar Candles (brapi)').all();\nfor (const it of lotes) {\n  const results = (it.json && it.json.results) || [];\n  for (const ativo of results) {\n    const sym = ativo.symbol;\n    if (!sym) continue;\n    const candles = ativo.historicalDataPrice || [];\n    for (const c of candles) {\n      if (!c || typeof c.close !== 'number' || !c.date) continue;\n      const d = new Date(c.date * 1000).toISOString().slice(0, 10); // AAAA-MM-DD\n      mapa.set(sym + '|' + d, { ticker: sym, date: d, close: c.close });\n    }\n  }\n}\n\n// 3) devolver tudo ordenado (ticker, depois data)\nconst linhas = Array.from(mapa.values())\n  .sort((a, b) => a.ticker.localeCompare(b.ticker) || a.date.localeCompare(b.date));\n\nreturn linhas.map(l => ({ json: l }));\n"
+      },
+      "id": "27485e18-1ccd-4a8a-8600-8f9ac50a46e5",
+      "name": "Atualizar Memoria",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "22528dfd-8607-4c04-9f12-5dd6a2a0d227",
+      "name": "Gerar CSV",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        608,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "C:/Users/Public/memoria.csv",
+        "options": {}
+      },
+      "id": "3b89261b-2dfc-40ba-b224-fd76df589a52",
+      "name": "Salvar Memoria",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        800,
+        240
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Clicar para Testar": {
+      "main": [
+        [
+          {
+            "node": "Montar Lotes (cole o token)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar Lotes (cole o token)": {
+      "main": [
+        [
+          {
+            "node": "Buscar Candles (brapi)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Candles (brapi)": {
+      "main": [
+        [
+          {
+            "node": "Cerebro do Funil",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Ler Memoria",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cerebro do Funil": {
+      "main": [
+        [
+          {
+            "node": "Gerar Excel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ler Memoria": {
+      "main": [
+        [
+          {
+            "node": "Extrair CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extrair CSV": {
+      "main": [
+        [
+          {
+            "node": "Atualizar Memoria",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Atualizar Memoria": {
+      "main": [
+        [
+          {
+            "node": "Gerar CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gerar CSV": {
+      "main": [
+        [
+          {
+            "node": "Salvar Memoria",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "meta": {
+    "instanceId": "db22b77af1e908916c972291f41df53e82c95652d6cd6fbda407c0789bd98956"
+  },
+  "nodeGroups": [],
+  "tags": []
+}
