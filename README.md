@@ -167,7 +167,7 @@ distância que percorreu. Uma distância **moderada** tende a reverter (o caso
 quebrou, então esses são marcados pra evitar, não pra operar. Isso mantém a
 saída honesta, em vez de "cuspir" todo outlier.
 
-## Stack
+## Ferramentas
 
 - **n8n** pra orquestração
 - **API REST brapi** pros dados da B3
