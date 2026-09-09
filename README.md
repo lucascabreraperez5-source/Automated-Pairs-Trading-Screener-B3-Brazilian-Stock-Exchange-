@@ -92,6 +92,12 @@ starting point for analysis, never a recommendation to trade.
 2. Paste your own brapi token where the placeholder is, in the Code node.
 3. Adjust the pair list and thresholds if you want. Run it and read the Excel.
 
+## Hire me
+
+Freelance n8n automation, focused on WhatsApp integrations, REST APIs and Airtable. Lucas Cabrera Perez lucas.cabreraperez5@gmail.com tel: 11 97294-4496
+
+
+
 ---
 ---
 
@@ -184,3 +190,6 @@ sinalizado é ponto de partida pra análise, nunca recomendação de operar.
 2. Cole o seu token da brapi no lugar do placeholder, dentro do nó Code.
 3. Ajuste a lista de pares e os limites se quiser. Rode e leia o Excel.
 
+## Contato
+
+Freelancer em automação com n8n, com foco em integrações com WhatsApp, APIs REST e Airtable. Lucas Cabrera Perez lucas.cabreraperez5@gmail.com tel.: 11 97294-4496
