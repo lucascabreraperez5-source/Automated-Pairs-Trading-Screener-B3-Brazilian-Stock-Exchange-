@@ -9,7 +9,8 @@ and not a prediction of the market.
 
 🇧🇷 **Versão em português mais abaixo** ⬇️ · [Ir para o português](#-triagem-de-pairs-trading--b3-bolsa-brasileira)
 
-![n8n canvas of the screener: fetch, brain and memory branches](images/architecture.png)
+<img width="1236" height="460" alt="arquitetura-n8n-trade-finanças" src="https://github.com/user-attachments/assets/881fd79e-0bd3-41de-ad0f-7af3be4d1118" />
+
 
 ---
 
@@ -52,11 +53,13 @@ turns a hard API limit into a non-issue.
 4. **Excel export** produces a ranked report
 5. **Memory branch** reads the local CSV, merges the new candles and saves it back, so history accumulates across runs
 
-![Ranked pairs report exported to Excel](images/output-correlacao.png)
+<img width="1364" height="460" alt="excel-n8n-trade-correlação" src="https://github.com/user-attachments/assets/858c2964-78a4-423c-abd6-27cb66bd3ab7" />
+
 
 The second variant scores single assets on a trend/convergence basis instead of pairs:
 
-![Trend-based screening output](images/output-tendencia.png)
+<img width="1351" height="466" alt="excel-n8n-trade" src="https://github.com/user-attachments/assets/e7fd41bd-6498-491e-bd4d-a141597ee52d" />
+
 
 ## Signal quality
 
@@ -101,7 +104,8 @@ estatística e me entrega uma lista ordenada de quais pares estão esticados e
 valem uma olhada. É uma ferramenta de triagem pra apoiar a minha própria análise
 de swing trade, não um robô que opera nem uma previsão do mercado.
 
-![Canvas do n8n: os ramos de busca, cérebro e memória](images/architecture.png)
+<img width="1236" height="460" alt="arquitetura-n8n-trade-finanças" src="https://github.com/user-attachments/assets/43427280-0774-4c83-9a1a-3e6364903882" />
+
 
 ## O problema
 
@@ -141,11 +145,13 @@ cache simples que transforma um limite duro da API num não-problema.
 4. **Exporta Excel** gera um relatório ordenado
 5. **Ramo de memória** lê o CSV local, junta os candles novos e salva de volta, acumulando histórico entre as rodadas
 
-![Relatório de pares ordenado, exportado em Excel](images/output-correlacao.png)
+<img width="1364" height="460" alt="excel-n8n-trade-correlação" src="https://github.com/user-attachments/assets/a143e0a1-95e4-497c-9189-144e4d9ab48d" />
+
 
 A segunda variação pontua ativos individuais por tendência/convergência, em vez de pares:
 
-![Saída da triagem por tendência](images/output-tendencia.png)
+<img width="1351" height="466" alt="excel-n8n-trade" src="https://github.com/user-attachments/assets/3babc18c-dfc8-4c54-83b6-4c3d74d592ad" />
+
 
 ## Qualidade do sinal
 
