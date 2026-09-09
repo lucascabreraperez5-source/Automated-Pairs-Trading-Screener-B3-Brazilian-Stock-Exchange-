@@ -1,65 +1,180 @@
-# Automated-Pairs-Trading-Screener-B3-Brazilian-Stock-Exchange-
+# Pairs Trading Screener, B3 (Brazilian Stock Exchange)
+### n8n · brapi API · JavaScript · Statistical Arbitrage
 
-n8n · brapi API · JavaScript · Statistical Arbitrage
+I built this to stop eyeballing dozens of stock charts by hand looking for pairs
+that had drifted apart. It pulls the prices on its own, does the statistics, and
+hands me a ranked list of which pairs are stretched and worth a look. It's a
+screening tool to support my own swing-trade analysis, not an automated trader
+and not a prediction of the market.
 
-A data-automation tool that screens pairs of correlated Brazilian stocks and flags statistical divergences that may signal a mean-reversion opportunity. Built to support swing-trade analysis, not to place trades or predict the market.
+🇧🇷 **Versão em português mais abaixo** ⬇️ · [Ir para o português](#-triagem-de-pairs-trading--b3-bolsa-brasileira)
 
-What it does
+![n8n canvas of the screener: fetch, brain and memory branches](images/architecture.png)
 
-It automates the full screening pipeline: it pulls historical prices for pairs of stocks in the same sector, measures how far each pair has drifted from its normal relationship, and outputs a ranked, readable report.
+---
 
-For each pair, it computes the price ratio over a rolling window, its mean and standard deviation, and the current z-score (how many standard deviations the pair is from normal). When a pair stretches beyond a threshold (2 std), it's flagged: which stock is "expensive", which is "cheap", and the direction of a potential mean-reversion trade. It also classifies signal quality — a moderate divergence tends to revert, while an extreme one more likely means the correlation itself broke, so those are marked to avoid.
+## The problem
 
-The interesting engineering problem
+Pairs trading looks for two correlated stocks (usually same sector) that
+normally move together. When they drift apart, the bet is that they'll converge
+again. Watching that by hand across dozens of pairs every day is tedious and
+easy to get wrong. I wanted the boring part (fetch, align, measure) done for me,
+leaving only the decision to me.
 
-The free tier of the price API (brapi) is rate-limited. Fetching every pair fresh on every run hits that limit fast. I solved it with a local memory layer: each run reads a CSV of everything fetched so far, merges in the new candles without duplicating dates, and writes it back. Over time the tool builds its own local price history and leans less on live calls — a simple cache that turns a hard API limit into a non-issue.
+## What it does
 
-How it works (pipeline)
-Trigger → builds the list of stock pairs to check (grouped by sector)
-Fetch → pulls candles from brapi, one ticker at a time, with a pause between calls to stay under the rate limit
-Brain (Code node) → aligns the two price series by date, computes the ratio, z-score and signal quality for each pair
-Excel export → a ranked report: pair, sector, z-score, signal, which to buy/sell, prices, distance %
-Memory branch → reads local CSV → merges new candles → saves back, so history accumulates across runs
-Tech stack
-n8n for orchestration
-brapi REST API for B3 market data
-JavaScript (Code nodes) for the statistics: ratio, rolling mean/std, z-score
-CSV/Excel for local persistence and the output report
-A note on scope
+For each pair it pulls the price history, lines the two series up by date and
+computes the price ratio over a rolling window. It then measures the current
+**z-score** (how many standard deviations the pair sits from its own normal) and
+flags anything past 2 standard deviations: which stock looks expensive, which
+looks cheap, and the size of the gap. It also rates the signal, because not
+every divergence is worth taking.
 
-This is a screening and data-organization tool, not financial advice and not an automated trader. It highlights statistical divergences for a human to review. Markets are noisy and correlations break; a flagged pair is a starting point for analysis, never a recommendation to trade.
+| Workflow file | What it is | Trigger | Status |
+|---|---|---|---|
+| [`workflows/pairs-trading-correlacao.json`](workflows/pairs-trading-correlacao.json) | Pairs screener + local memory | Manual | ✅ Working |
+| [`workflows/funil-ativos-b3.json`](workflows/funil-ativos-b3.json) | Same engine, trend-based parameters | Manual | ✅ Working |
 
-⚠️ The brapi API token was replaced with a placeholder (COLE_SEU_TOKEN_AQUI). Add your own token to run it.
+## The interesting engineering problem
 
-------------------------------------------------------------------------------------------------------------------------------------------
+The free tier of the price API (brapi) is rate-limited, so fetching every pair
+fresh on every run hits the ceiling fast. I solved it with a **local memory
+layer**: each run reads a CSV of everything fetched so far, merges in the new
+candles without duplicating dates, and writes it back. Over time the tool builds
+its own local price history and depends less on live calls. A plain cache that
+turns a hard API limit into a non-issue.
 
-# Ferramenta Automatizada de Triagem de Pairs Trading (B3 - Bolsa de Valores Brasileira)
+## How it works
 
-n8n · API brapi · JavaScript · Arbitragem Estatística
+1. **Trigger** builds the list of stock pairs to check, grouped by sector
+2. **Fetch** pulls candles from brapi one ticker at a time, with a pause between calls to stay under the rate limit
+3. **Brain (Code node)** aligns the two price series by date and computes the ratio, rolling mean/std, z-score and signal quality
+4. **Excel export** produces a ranked report
+5. **Memory branch** reads the local CSV, merges the new candles and saves it back, so history accumulates across runs
 
-Uma ferramenta de automação de dados que realiza a triagem de pares de ações brasileiras correlacionadas e identifica divergências estatísticas que podem sinalizar uma oportunidade de reversão à média. Desenvolvida para apoiar a análise de *swing trade*, e não para executar operações ou prever o mercado.
+![Ranked pairs report exported to Excel](images/output-correlacao.png)
 
-O que ela faz
+The second variant scores single assets on a trend/convergence basis instead of pairs:
 
-Automatiza todo o fluxo de triagem: coleta preços históricos de pares de ações do mesmo setor, mede o grau de desvio de cada par em relação à sua relação habitual e gera um relatório organizado e de fácil leitura.
+![Trend-based screening output](images/output-tendencia.png)
 
-Para cada par, calcula a razão de preços em uma janela móvel, a média e o desvio padrão dessa razão, além do *z-score* atual (quantos desvios padrão o par está em relação à normalidade). Quando um par ultrapassa um determinado limite (2 desvios padrão), ele é sinalizado: identifica-se qual ação está "cara", qual está "barata" e a direção de uma possível operação de reversão à média. A ferramenta também classifica a qualidade do sinal — uma divergência moderada tende a reverter, enquanto uma extrema sugere que a correlação foi rompida, sendo, portanto, marcada para evitar a operação.
+## Signal quality
 
-O desafio de engenharia interessante
+A signal alone isn't enough, so each flagged pair is rated by how far it has
+drifted. A **moderate** gap tends to revert (the useful case). An **extreme**
+gap more often means the correlation itself broke, so those are marked to avoid
+rather than to trade. This keeps the output honest instead of just spitting out
+every outlier.
 
-O plano gratuito da API de preços (brapi) possui limites de taxa de requisição (*rate limits*). Buscar dados de todos os pares a cada execução esgota rapidamente esse limite. Resolvi isso implementando uma camada de memória local: a cada execução, a ferramenta lê um arquivo CSV com todos os dados já coletados, incorpora os novos dados (*candles*) sem duplicar datas e salva o arquivo atualizado. Com o tempo, a ferramenta constrói seu próprio histórico local de preços e depende menos de chamadas em tempo real — um cache simples que transforma uma limitação rígida da API em algo irrelevante. Como funciona (pipeline)
-Gatilho (Trigger) → gera a lista de pares de ações a serem verificados (agrupados por setor)
-Busca (Fetch) → obtém dados de velas (candles) da brapi, um ticker por vez, com uma pausa entre as requisições para respeitar o limite de taxa (rate limit)
-Cérebro (Nó de código) → alinha as duas séries de preços por data e calcula a razão (ratio), o z-score e a qualidade do sinal para cada par
-Exportação para Excel → um relatório classificado contendo: par, setor, z-score, sinal, indicação de compra/venda, preços e distância percentual
-Ramificação de memória → lê o CSV local → mescla novos dados de velas → salva novamente, permitindo o acúmulo do histórico entre as execuções
-Stack tecnológica
-n8n para orquestração
-API REST da brapi para dados de mercado da B3
-JavaScript (nós de código) para cálculos estatísticos: razão, média móvel/desvio padrão, z-score
-CSV/Excel para persistência local e relatório de saída
-Observação sobre o escopo
+## Tech stack
 
-Esta é uma ferramenta de triagem e organização de dados; não constitui aconselhamento financeiro nem um sistema de negociação automatizada. Ela destaca divergências estatísticas para análise humana. Os mercados são ruidosos e as correlações podem se romper; um par sinalizado serve como ponto de partida para análise, nunca como uma recomendação direta de negociação.
+- **n8n** for orchestration
+- **brapi** REST API for B3 market data
+- **JavaScript** (Code nodes) for the statistics: ratio, rolling mean/std, z-score
+- **CSV / Excel** for local persistence and the output report
 
-⚠️ O token da API brapi foi substituído por um marcador (COLE_SEU_TOKEN_AQUI). Insira seu próprio token para executar o fluxo.
+## A note on scope
+
+This is a screening and data-organization tool. It is not financial advice and
+not an automated trader. It highlights statistical divergences for a human to
+review. Markets are noisy and correlations break, so a flagged pair is a
+starting point for analysis, never a recommendation to trade.
+
+## Running it yourself
+
+> ⚠️ The brapi API token was replaced with a placeholder
+> (`COLE_SEU_TOKEN_AQUI`). Add your own token to run it.
+
+1. In n8n, use **Import from File** and pick a workflow from `workflows/`.
+2. Paste your own brapi token where the placeholder is, in the Code node.
+3. Adjust the pair list and thresholds if you want. Run it and read the Excel.
+
+---
+---
+
+# 🇧🇷 Triagem de Pairs Trading, B3 (Bolsa Brasileira)
+### n8n · API brapi · JavaScript · Arbitragem Estatística
+
+Fiz esse sistema pra parar de olhar dezenas de gráficos de ações na mão
+procurando pares que se distanciaram. Ele busca os preços sozinho, faz a
+estatística e me entrega uma lista ordenada de quais pares estão esticados e
+valem uma olhada. É uma ferramenta de triagem pra apoiar a minha própria análise
+de swing trade, não um robô que opera nem uma previsão do mercado.
+
+![Canvas do n8n: os ramos de busca, cérebro e memória](images/architecture.png)
+
+## O problema
+
+Pairs trading procura duas ações correlacionadas (geralmente do mesmo setor) que
+costumam andar juntas. Quando elas se distanciam, a aposta é que voltem a se
+juntar. Acompanhar isso na mão em dezenas de pares todo dia é cansativo e fácil
+de errar. Eu queria a parte chata (buscar, alinhar, medir) feita automaticamente,
+sobrando só a decisão pra mim.
+
+## O que ele faz
+
+Pra cada par ele busca o histórico de preços, alinha as duas séries por data e
+calcula a razão de preços numa janela móvel. Depois mede o **z-score** atual
+(quantos desvios-padrão o par está do próprio normal) e sinaliza tudo que passa
+de 2 desvios: qual ação está cara, qual está barata, e o tamanho da distância.
+Também classifica a qualidade do sinal, porque nem toda divergência vale a pena.
+
+| Arquivo do workflow | O que é | Gatilho | Status |
+|---|---|---|---|
+| [`workflows/pairs-trading-correlacao.json`](workflows/pairs-trading-correlacao.json) | Triagem de pares + memória local | Manual | ✅ Funcionando |
+| [`workflows/funil-ativos-b3.json`](workflows/funil-ativos-b3.json) | Mesmo motor, parâmetros por tendência | Manual | ✅ Funcionando |
+
+## O problema de engenharia interessante
+
+O plano grátis da API de preços (brapi) tem limite de requisições, então buscar
+todo par do zero a cada rodada estoura o limite rápido. Resolvi com uma **camada
+de memória local**: cada rodada lê um CSV com tudo que já foi buscado, junta os
+candles novos sem duplicar datas e salva de volta. Com o tempo, a ferramenta
+monta o próprio histórico de preços e depende menos das chamadas ao vivo. Um
+cache simples que transforma um limite duro da API num não-problema.
+
+## Como funciona
+
+1. **Gatilho** monta a lista de pares a checar, agrupados por setor
+2. **Busca** puxa os candles da brapi um ticker por vez, com pausa entre as chamadas pra respeitar o limite
+3. **Cérebro (nó Code)** alinha as duas séries por data e calcula razão, média/desvio móvel, z-score e qualidade do sinal
+4. **Exporta Excel** gera um relatório ordenado
+5. **Ramo de memória** lê o CSV local, junta os candles novos e salva de volta, acumulando histórico entre as rodadas
+
+![Relatório de pares ordenado, exportado em Excel](images/output-correlacao.png)
+
+A segunda variação pontua ativos individuais por tendência/convergência, em vez de pares:
+
+![Saída da triagem por tendência](images/output-tendencia.png)
+
+## Qualidade do sinal
+
+Um sinal sozinho não basta, então cada par sinalizado é classificado pela
+distância que percorreu. Uma distância **moderada** tende a reverter (o caso
+útil). Uma distância **enorme** geralmente significa que a própria correlação
+quebrou, então esses são marcados pra evitar, não pra operar. Isso mantém a
+saída honesta, em vez de cuspir todo outlier.
+
+## Stack
+
+- **n8n** pra orquestração
+- **API REST brapi** pros dados da B3
+- **JavaScript** (nós Code) pra estatística: razão, média/desvio móvel, z-score
+- **CSV / Excel** pra persistência local e o relatório de saída
+
+## Sobre o escopo
+
+Isso é uma ferramenta de triagem e organização de dados. Não é conselho
+financeiro nem robô que opera sozinho. Ela destaca divergências estatísticas pra
+um humano avaliar. O mercado é ruidoso e correlações quebram, então um par
+sinalizado é ponto de partida pra análise, nunca recomendação de operar.
+
+## Como rodar
+
+> ⚠️ O token da API brapi foi trocado por um placeholder
+> (`COLE_SEU_TOKEN_AQUI`). Coloque o seu pra rodar.
+
+1. No n8n, use **Import from File** e escolha um workflow em `workflows/`.
+2. Cole o seu token da brapi no lugar do placeholder, dentro do nó Code.
+3. Ajuste a lista de pares e os limites se quiser. Rode e leia o Excel.
+
