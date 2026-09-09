@@ -98,7 +98,7 @@ starting point for analysis, never a recommendation to trade.
 # 🇧🇷 Triagem de Pairs Trading, B3 (Bolsa Brasileira)
 ### n8n · API brapi · JavaScript · Arbitragem Estatística
 
-Fiz esse sistema pra parar de olhar dezenas de gráficos de ações na mão
+Fiz esse sistema para parar de olhar dezenas de gráficos de ações na mão
 procurando pares que se distanciaram. Ele busca os preços sozinho, faz a
 estatística e me entrega uma lista ordenada de quais pares estão esticados e
 valem uma olhada. É uma ferramenta de triagem pra apoiar a minha própria análise
@@ -135,7 +135,7 @@ todo par do zero a cada rodada estoura o limite rápido. Resolvi com uma **camad
 de memória local**: cada rodada lê um CSV com tudo que já foi buscado, junta os
 candles novos sem duplicar datas e salva de volta. Com o tempo, a ferramenta
 monta o próprio histórico de preços e depende menos das chamadas ao vivo. Um
-cache simples que transforma um limite duro da API num não-problema.
+cache simples que transforma uma limitação rigida da API em algo irrelevante.
 
 ## Como funciona
 
@@ -159,7 +159,7 @@ Um sinal sozinho não basta, então cada par sinalizado é classificado pela
 distância que percorreu. Uma distância **moderada** tende a reverter (o caso
 útil). Uma distância **enorme** geralmente significa que a própria correlação
 quebrou, então esses são marcados pra evitar, não pra operar. Isso mantém a
-saída honesta, em vez de cuspir todo outlier.
+saída honesta, em vez de "cuspir" todo outlier.
 
 ## Stack
 
